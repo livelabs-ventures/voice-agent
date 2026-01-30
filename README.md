@@ -7,7 +7,7 @@ Two-step voice architecture: **instant responses** + **deep thinking**.
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌─────────────────────────────────┐
 │   Browser   │────▶│  LiveKit Cloud  │────▶│  Voice Agent                    │
-│  (WebRTC)   │◀────│  (Chumo SFU)    │◀────│                                 │
+│  (WebRTC)   │◀────│                 │◀────│                                 │
 └─────────────┘     └─────────────────┘     │  ┌───────────────────────────┐  │
                                             │  │ gpt-5.2-chat-latest       │  │
                                             │  │ (instant voice responses) │  │

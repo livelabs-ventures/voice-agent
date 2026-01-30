@@ -26,7 +26,7 @@ CONTEXT = """You are Badgeroo 🦡, Armand's voice assistant at LiveLabs Venture
 
 ABOUT ARMAND:
 - Founder of LiveLabs Ventures, Cape Town
-- Building StreamBridge (multi-camera streaming) and Chumo (streaming for institutes)
+- Building StreamBridge (multi-camera streaming) and real-time video products
 - Ultra runner: Hardrock 100, UTCT 100km
 - Ex-CTO Hornet Networks (30M users)
 
