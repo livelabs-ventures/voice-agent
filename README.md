@@ -1,205 +1,141 @@
-# 🎙️ LiveKit Voice Agent for Clawdbot
+# 🦡 Badgeroo Voice Agent
 
-Real-time voice interface that routes through Clawdbot Gateway, maintaining full session context, memory, and tool access.
+Two-step voice architecture: **instant responses** + **deep thinking**.
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Browser   │────▶│  LiveKit Server │────▶│  Voice Agent    │
-│  (WebRTC)   │◀────│   (Chumo SFU)   │◀────│  (Python)       │
-└─────────────┘     └─────────────────┘     └────────┬────────┘
-                                                     │
-                    ┌─────────────────┐              │
-                    │  Clawdbot       │◀─────────────┘
-                    │  Gateway        │  HTTP API
-                    │  (Sessions,     │
-                    │   Memory, Tools)│
-                    └─────────────────┘
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────────────────────┐
+│   Browser   │────▶│  LiveKit Cloud  │────▶│  Voice Agent                    │
+│  (WebRTC)   │◀────│  (Chumo SFU)    │◀────│                                 │
+└─────────────┘     └─────────────────┘     │  ┌───────────────────────────┐  │
+                                            │  │ gpt-5.2-chat-latest       │  │
+                                            │  │ (instant voice responses) │  │
+                                            │  └─────────────┬─────────────┘  │
+                                            │                │                │
+                                            │         deep_think()            │
+                                            │                │                │
+                                            │  ┌─────────────▼─────────────┐  │
+                                            │  │ Clawdbot Gateway → Opus   │  │
+                                            │  │ (tools, memory, code,     │  │
+                                            │  │  web, APIs, files)        │  │
+                                            │  └───────────────────────────┘  │
+                                            └─────────────────────────────────┘
 ```
 
-**Pipeline:**
-1. **VAD** (Silero) - Detects when user is speaking
-2. **STT** (Deepgram Nova-2) - Transcribes speech to text
-3. **LLM** (Clawdbot Gateway) - Processes with full context
-4. **TTS** (ElevenLabs Turbo) - Speaks the response
+### Two-Step Flow
+
+1. **Fast Layer** (gpt-5.2-chat-latest)
+   - Instant voice responses
+   - Handles greetings, simple questions, conversation
+   - Decides when to call `deep_think`
+
+2. **Deep Layer** (Opus via Clawdbot Gateway)
+   - Complex tasks: code, files, memory, research
+   - Full tool access: Strava, Instagram, Google, GitHub, web search, browser
+   - Returns voice-friendly responses (prompted for casual speech)
+   - Includes current date for correct relative references
+
+### Pipeline
+
+| Component | Service | Purpose |
+|-----------|---------|---------|
+| VAD | Silero | Detects speech |
+| STT | Deepgram Nova-2 | Speech → Text |
+| LLM (fast) | gpt-5.2-chat-latest | Instant responses |
+| LLM (deep) | Opus via Gateway | Tools & memory |
+| TTS | ElevenLabs Turbo v2.5 | Text → Speech |
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Install
 
 ```bash
-cd livekit-voice-agent
 python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+source venv/bin/activate
 pip install -r requirements.txt
-pip install livekit-api  # For token generation
 ```
 
-### 2. Configure Environment
+### 2. Configure
 
 ```bash
 cp .env.example .env
-# Edit .env with your credentials
 ```
 
-**Required credentials:**
+Edit `.env`:
+```bash
+LIVEKIT_URL=wss://your-project.livekit.cloud
+LIVEKIT_API_KEY=your-api-key
+LIVEKIT_API_SECRET=your-api-secret
 
-| Service | Get from |
-|---------|----------|
-| LiveKit | [livekit.cloud](https://cloud.livekit.io) or Chumo's server |
-| Deepgram | [console.deepgram.com](https://console.deepgram.com) |
-| ElevenLabs | [elevenlabs.io](https://elevenlabs.io) |
-| Clawdbot | Your local Gateway (`clawdbot status`) |
+DEEPGRAM_API_KEY=your-deepgram-key
+ELEVENLABS_API_KEY=your-elevenlabs-key
+ELEVENLABS_VOICE_ID=your-voice-id
+OPENAI_API_KEY=your-openai-key
 
-### 3. Get Clawdbot Gateway Token
+CLAWDBOT_GATEWAY_URL=http://127.0.0.1:18789
+CLAWDBOT_GATEWAY_TOKEN=your-gateway-token
+```
+
+### 3. Run
 
 ```bash
-# Check your Clawdbot config for the API token
-cat ~/.config/clawdbot/config.yaml | grep -A2 api:
+# Connect to a specific room
+python src/agent.py connect --room my-room
+
+# Or dev mode (auto-dispatch)
+python src/agent.py dev
 ```
 
-### 4. Run the Agent
+### 4. Join
 
-**Development mode** (auto-reload):
+Generate a token:
 ```bash
-python -m livekit.agents.cli dev --entrypoint src.agent:entrypoint
+lk token create --identity user --room my-room --join --create
 ```
 
-**Production mode:**
+Open in browser:
+```
+https://meet.livekit.io/custom?liveKitUrl=wss://your-project.livekit.cloud&token=YOUR_TOKEN
+```
+
+## What deep_think Can Do
+
+The fast voice model knows to call `deep_think` for:
+
+- **Memory**: "What did we work on today?"
+- **Strava**: "How many km did I run this week?"
+- **Instagram**: "How's my latest post doing?"
+- **Google**: "What's on my calendar?"
+- **GitHub**: "Any open PRs?"
+- **Code**: "Write a function that..."
+- **Files**: "Check the logs for errors"
+- **Web**: "Search for..."
+- **Browser**: "Go to..."
+
+## Progress Updates
+
+While Opus thinks, the voice agent keeps you updated:
+- "Still digging into that..."
+- "Working on it, almost there..."
+- "Just a bit more..."
+
+## Customization
+
+### Voice
+
+Find voices at [elevenlabs.io/voices](https://elevenlabs.io/voices):
 ```bash
-python -m livekit.agents.cli start --entrypoint src.agent:entrypoint
+ELEVENLABS_VOICE_ID=your-voice-id
 ```
 
-### 5. Test It
+### Context
 
-Generate a test token:
-```bash
-python scripts/create_token.py badgeroo-voice armand
-```
-
-This outputs a URL you can open in your browser to join the room with audio.
-
-## Configuration
-
-### Session Keys
-
-By default, the agent creates a session key per participant:
-```
-agent:voice:{participant_identity}
-```
-
-For shared context (same memory across all callers):
-```bash
-CLAWDBOT_SESSION_KEY=agent:voice:shared
-```
-
-### Voice Selection
-
-Find ElevenLabs voice IDs at [elevenlabs.io/voices](https://elevenlabs.io/voices):
-
-```bash
-# Example voices
-ELEVENLABS_VOICE_ID=pNInz6obpgDQGcFmaJgB  # Adam (default)
-ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM  # Rachel
-ELEVENLABS_VOICE_ID=your-cloned-voice-id   # Custom clone
-```
-
-### Deepgram Models
-
-```python
-# In src/agent.py, modify STT config:
-stt=deepgram.STT(
-    model="nova-2",        # Best quality
-    # model="nova-2-general",  # Faster
-    language="en",
-    # language="multi",    # Auto-detect language
-)
-```
-
-## Using with Chumo
-
-If you're running this with Chumo's LiveKit infrastructure:
-
-1. **Use Chumo's LiveKit credentials** in `.env`
-2. **Configure dispatch rules** so the agent joins specific rooms:
-   - Room name pattern: `voice-*`
-   - Or room metadata: `{"agent": "badgeroo"}`
-
-3. **Optional: Add to Chumo UI** - Create a "Talk to Badgeroo" button that:
-   - Creates a room with the right metadata
-   - Generates a token for the user
-   - Opens the WebRTC connection
-
-## Extending
-
-### Custom System Prompt
-
-The Clawdbot session inherits its system prompt from the Gateway config. To customize for voice:
-
-1. Create a dedicated agent in `config.yaml`:
-```yaml
-agents:
-  voice:
-    model: claude-sonnet-4-5
-    systemPrompt: |
-      You are Badgeroo, a voice assistant. Keep responses concise 
-      and conversational - you're speaking, not writing.
-      Aim for 1-2 sentences per response unless more detail is needed.
-```
-
-2. Update the session key:
-```bash
-CLAWDBOT_SESSION_KEY=agent:voice
-```
-
-### Adding Wake Word
-
-For "Hey Badgeroo" activation, add a wake word detector:
-
-```python
-from livekit.plugins import silero
-
-# Add to assistant config:
-wake_word=silero.WakeWord(
-    wake_words=["hey badgeroo", "badgeroo"],
-    threshold=0.5,
-)
-```
-
-### Function Calling
-
-The Clawdbot Gateway handles all tool execution. The voice agent automatically has access to:
-- Web search
-- File operations
-- Browser control
-- Calendar/email (if configured)
-- Everything in your Clawdbot setup
-
-## Troubleshooting
-
-### "Connection refused" to Gateway
-```bash
-# Check Gateway is running
-clawdbot status
-
-# Check the port
-curl http://localhost:3033/health
-```
-
-### High latency
-1. Use `eleven_turbo_v2_5` for TTS (fastest)
-2. Enable Deepgram interim results
-3. Reduce `min_endpointing_delay`
-4. Use a closer LiveKit region
-
-### Interruption not working
-Adjust these in `VoiceAssistant`:
-```python
-interrupt_speech_duration=0.3,  # Lower = more sensitive
-interrupt_min_words=1,          # Lower = more sensitive
-```
+Edit the `CONTEXT` string in `src/agent.py` to customize:
+- Who the assistant is
+- What it knows about the user
+- When to use deep_think
 
 ## License
 
-MIT - Part of the Clawdbot ecosystem.
+MIT - Part of the LiveLabs ecosystem.
