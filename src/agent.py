@@ -153,8 +153,11 @@ async def entrypoint(ctx: JobContext):
     )
 
     _session = AgentSession()
+    logger.info("Starting session...")
     await _session.start(agent, room=ctx.room)
+    logger.info("Session started, saying greeting...")
     await _session.say("Hey Armand, what's up?")
+    logger.info("Greeting sent, waiting...")
     await asyncio.Event().wait()
 
 
