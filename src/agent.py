@@ -1,8 +1,9 @@
-"""LiveKit Voice Agent - gpt-5.2-chat-latest with context + deep_think for tools"""
+"""LiveKit Voice Agent - gpt-5.2-chat-latest with full context + deep_think"""
 import os
 import asyncio
 import httpx
 from pathlib import Path
+from datetime import datetime
 from dotenv import load_dotenv
 import logging
 
@@ -21,60 +22,115 @@ GATEWAY_TOKEN = os.getenv("CLAWDBOT_GATEWAY_TOKEN", "")
 _session: AgentSession = None
 _busy = False
 
-# Context for the voice agent
-CONTEXT = """You are Badgeroo 🦡, Armand's voice assistant.
+CONTEXT = """You are Badgeroo 🦡, Armand's voice assistant at LiveLabs Ventures.
 
 ABOUT ARMAND:
-- Founder of LiveLabs Ventures (Cape Town)
-- Working on StreamBridge (multi-camera live streaming) and Chumo (streaming for institutes)
-- Ultra runner (Hardrock 100, UTCT 100km)
-- Previously: Hornet Networks CTO (scaled to 30M users), Pulse founder
+- Founder of LiveLabs Ventures, Cape Town
+- Building StreamBridge (multi-camera streaming) and Chumo (streaming for institutes)
+- Ultra runner: Hardrock 100, UTCT 100km
+- Ex-CTO Hornet Networks (30M users)
 
-CURRENT PROJECTS:
-- Voice agent development (this project!)
-- Clawdbot integration
-- LiveKit for real-time voice
+VOICE STYLE:
+- 1-2 sentences MAX
+- Casual, conversational, fast
 
-STYLE:
-- Keep responses to 1 sentence max
-- Be casual and conversational
-- You're fast and snappy!
+YOUR DEEP BRAIN (via deep_think tool) CAN:
+- Read/write files and code
+- Search memory and past conversations
+- Run shell commands
+- Check GitHub issues and PRs
+- Access Google services (Gmail, Calendar, Drive)
+- Check Strava running stats
+- Check Instagram posts/engagement
+- Monitor LiveKit rooms
+- Generate images
+- Deploy to Google Cloud
+- Search the web
+- Control browser automation
 
-For complex tasks (code, files, research, memory lookups), use deep_think ONCE."""
+WHEN TO USE deep_think:
+- "What did we work on?" → deep_think (needs memory)
+- "Check my Strava" → deep_think (needs API)
+- "What's in my calendar?" → deep_think (needs Google)
+- "How many viewers in the stream?" → deep_think (LiveKit)
+- "Write some code for X" → deep_think (needs files)
+- "Search for X" → deep_think (web search)
+
+WHEN NOT TO USE deep_think:
+- Simple chat/questions you can answer from context
+- Greetings, small talk
+- Things in your context above
+
+Call deep_think ONCE per topic. Say "Let me check..." then chat while waiting."""
+
+
+async def _progress_updates():
+    """Send progress updates while thinking"""
+    updates = [
+        "Still digging into that...",
+        "Working on it, almost there...",
+        "Just a bit more...",
+    ]
+    for i, msg in enumerate(updates):
+        await asyncio.sleep(8)  # Every 8 seconds
+        if _busy and _session:
+            await _session.say(msg)
+        else:
+            break
 
 
 async def _think(q: str):
     global _session, _busy
+    logger.info(f"🧠 Thinking: {q[:50]}...")
+    
+    # Start progress updates in background
+    progress_task = asyncio.create_task(_progress_updates())
+    
+    # Wrap question with voice-friendly instructions + current date
+    now = datetime.now()
+    date_str = now.strftime("%A, %d %B %Y")  # e.g. "Thursday, 30 January 2026"
+    
+    voice_prompt = f"""IMPORTANT: This response will be READ ALOUD via text-to-speech.
+Today's date is {date_str}. Use this for any relative date references (last year = {now.year - 1}, this year = {now.year}).
+Reply in 2-3 casual spoken sentences MAX. No lists, bullets, markdown, or technical formatting.
+Sound like a friendly human chatting, not a robot reading documentation.
+
+User's question: {q}"""
+    
     try:
-        async with httpx.AsyncClient(timeout=60) as c:
+        async with httpx.AsyncClient(timeout=120) as c:
             r = await c.post(f"{GATEWAY_URL}/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GATEWAY_TOKEN}", "Content-Type": "application/json"},
-                json={"model": "clawdbot:main", "messages": [{"role": "user", "content": q}]})
+                json={"model": "clawdbot:main", "messages": [{"role": "user", "content": voice_prompt}]})
             if r.status_code == 200:
                 ans = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                # Keep it short for voice
-                short = ans[:300] + "..." if len(ans) > 300 else ans
+                logger.info(f"🧠 Got: {ans[:100]}...")
+                
                 if _session:
-                    await _session.say(short)
+                    await _session.say(ans)
             else:
-                logger.error(f"Gateway returned {r.status_code}")
+                logger.error(f"Gateway {r.status_code}: {r.text[:100]}")
+                if _session:
+                    await _session.say("Sorry, ran into an issue getting that.")
     except Exception as e:
         logger.error(f"Think error: {e}")
+        if _session:
+            await _session.say("Had trouble with that request.")
     finally:
         _busy = False
+        progress_task.cancel()
 
 
 @llm.function_tool
 async def deep_think(question: str) -> str:
-    """Route to Opus (via Clawdbot) for complex tasks: code, files, research, memory, past work.
-    This gives access to tools and context. Call ONCE per topic.
-    """
+    """Route to Opus agent for: memory, files, code, APIs (Strava/Instagram/Google/GitHub), 
+    web search, browser, shell commands, image gen, deployments. Call ONCE per topic."""
     global _busy
     if _busy:
-        return "Still working on the last one, hang on."
+        return "Still working on the last request."
     _busy = True
     asyncio.create_task(_think(question))
-    return "On it, checking with my deep brain."
+    return "Checking that now, one sec."
 
 
 def prewarm(proc: JobProcess):
@@ -98,7 +154,7 @@ async def entrypoint(ctx: JobContext):
 
     _session = AgentSession()
     await _session.start(agent, room=ctx.room)
-    await _session.say("Hey Armand!")
+    await _session.say("Hey Armand, what's up?")
     await asyncio.Event().wait()
 
 
