@@ -1,7 +1,4 @@
-"""LiveKit Voice Agent - Fast Voice + Async Deep Thinking
-gpt-4o-mini direct for instant responses
-Opus via Gateway for deep thinking (async, keeps conversation going)
-"""
+"""LiveKit Voice Agent - gpt-5.2-chat-latest with context + deep_think for tools"""
 import os
 import asyncio
 import httpx
@@ -21,79 +18,63 @@ logger = logging.getLogger("voice-agent")
 GATEWAY_URL = os.getenv("CLAWDBOT_GATEWAY_URL", "http://127.0.0.1:18789")
 GATEWAY_TOKEN = os.getenv("CLAWDBOT_GATEWAY_TOKEN", "")
 
-# Store session reference for async callbacks
-_current_session: AgentSession = None
+_session: AgentSession = None
+_busy = False
+
+# Context for the voice agent
+CONTEXT = """You are Badgeroo 🦡, Armand's voice assistant.
+
+ABOUT ARMAND:
+- Founder of LiveLabs Ventures (Cape Town)
+- Working on StreamBridge (multi-camera live streaming) and Chumo (streaming for institutes)
+- Ultra runner (Hardrock 100, UTCT 100km)
+- Previously: Hornet Networks CTO (scaled to 30M users), Pulse founder
+
+CURRENT PROJECTS:
+- Voice agent development (this project!)
+- Clawdbot integration
+- LiveKit for real-time voice
+
+STYLE:
+- Keep responses to 1 sentence max
+- Be casual and conversational
+- You're fast and snappy!
+
+For complex tasks (code, files, research, memory lookups), use deep_think ONCE."""
 
 
-async def _do_deep_think(question: str):
-    """Background task for deep thinking - announces result when ready"""
-    global _current_session
-    logger.info(f"🧠 Deep thinking started: {question}")
-    
+async def _think(q: str):
+    global _session, _busy
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{GATEWAY_URL}/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {GATEWAY_TOKEN}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "clawdbot:main",  # Route to Opus
-                    "messages": [{"role": "user", "content": question}],
-                }
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                answer = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                logger.info(f"🧠 Got answer: {answer[:100]}...")
-                
-                # Use fast model to make it conversational for voice
-                voice_response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "gpt-4o-mini",
-                        "messages": [{
-                            "role": "user",
-                            "content": f"""Summarize this for a quick voice response (2-3 sentences max, casual and conversational, no bullet points or lists):
-
-{answer[:1500]}"""
-                        }],
-                    }
-                )
-                
-                if voice_response.status_code == 200:
-                    voice_data = voice_response.json()
-                    summary = voice_data.get("choices", [{}])[0].get("message", {}).get("content", answer[:200])
-                else:
-                    # Fallback to simple truncation
-                    summary = ". ".join(answer.split(". ")[:2])
-                
-                if _current_session:
-                    await _current_session.say(f"Alright, here's what I found. {summary}")
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.post(f"{GATEWAY_URL}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GATEWAY_TOKEN}", "Content-Type": "application/json"},
+                json={"model": "clawdbot:main", "messages": [{"role": "user", "content": q}]})
+            if r.status_code == 200:
+                ans = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                # Keep it short for voice
+                short = ans[:300] + "..." if len(ans) > 300 else ans
+                if _session:
+                    await _session.say(short)
             else:
-                logger.error(f"Deep think failed: {response.status_code}")
-                if _current_session:
-                    await _current_session.say("Sorry, I couldn't get that info right now.")
+                logger.error(f"Gateway returned {r.status_code}")
     except Exception as e:
-        logger.error(f"Deep think error: {e}")
-        if _current_session:
-            await _current_session.say("Had trouble with that deep thinking request.")
+        logger.error(f"Think error: {e}")
+    finally:
+        _busy = False
 
 
 @llm.function_tool
 async def deep_think(question: str) -> str:
-    """Route complex questions to Opus for deep analysis. Returns immediately - result announced async.
-    Use for: code tasks, research, file ops, memory lookups, complex analysis.
+    """Route to Opus (via Clawdbot) for complex tasks: code, files, research, memory, past work.
+    This gives access to tools and context. Call ONCE per topic.
     """
-    # Fire and forget - don't block voice
-    asyncio.create_task(_do_deep_think(question))
-    return "I'm thinking about that now. What else can I help with while I work on it?"
+    global _busy
+    if _busy:
+        return "Still working on the last one, hang on."
+    _busy = True
+    asyncio.create_task(_think(question))
+    return "On it, checking with my deep brain."
 
 
 def prewarm(proc: JobProcess):
@@ -101,54 +82,23 @@ def prewarm(proc: JobProcess):
 
 
 async def entrypoint(ctx: JobContext):
-    global _current_session
-    
-    logger.info(f"Room: {ctx.room.name}")
+    global _session
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
-    
-    participant = await ctx.wait_for_participant()
-    logger.info(f"Participant: {participant.identity}")
+    p = await ctx.wait_for_participant()
+    logger.info(f"Participant: {p.identity}")
 
     agent = Agent(
-        instructions="""You are Badgeroo, a super fast rad badger voice assistant.
-You work with Armand at LiveLabs Ventures on StreamBridge and Chumo.
-
-VOICE RULES:
-- Keep responses SHORT - 1-2 sentences max
-- Be snappy and conversational!
-- You're fast - respond immediately
-
-DEEP THINKING (use deep_think tool):
-- Code tasks, debugging, technical details
-- Research, analysis, memory lookups  
-- Past work context, file operations
-- Complex multi-step tasks
-
-When you call deep_think:
-- Say something like "Let me look into that..." or "Good question, checking..."
-- The tool returns immediately so you can KEEP TALKING
-- The answer will be announced when ready
-- Ask "what else?" to keep conversation flowing
-
-You're tenacious and never give up! 🦡""",
+        instructions=CONTEXT,
         vad=ctx.proc.userdata["vad"],
         stt=deepgram.STT(model="nova-2"),
-        llm=openai.LLM(model="gpt-5.2-chat-latest"),  # ChatGPT voice model!
-        tts=elevenlabs.TTS(
-            voice_id=os.getenv("ELEVENLABS_VOICE_ID", "xvbIPX7VE9oYkosnkbGT"),
-            model="eleven_turbo_v2_5",
-        ),
+        llm=openai.LLM(model="gpt-5.2-chat-latest"),
+        tts=elevenlabs.TTS(voice_id=os.getenv("ELEVENLABS_VOICE_ID", "xvbIPX7VE9oYkosnkbGT"), model="eleven_turbo_v2_5"),
         tools=[deep_think],
     )
 
-    session = AgentSession()
-    _current_session = session  # Store for async callbacks
-    
-    await session.start(agent, room=ctx.room)
-    logger.info("Ready! Fast voice + async deep thinking")
-    
-    await session.say("Hey Armand! I'm fast for quick stuff, and I'll think deeper in the background for complex questions.")
-    
+    _session = AgentSession()
+    await _session.start(agent, room=ctx.room)
+    await _session.say("Hey Armand!")
     await asyncio.Event().wait()
 
 
