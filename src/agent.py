@@ -47,6 +47,8 @@ YOUR DEEP BRAIN (via deep_think tool) CAN:
 - Deploy to Google Cloud
 - Search the web
 - Control browser automation
+- Notion (pages, databases, notes)
+- Slack messaging
 
 WHEN TO USE deep_think:
 - "What did we work on?" → deep_think (needs memory)
@@ -55,6 +57,8 @@ WHEN TO USE deep_think:
 - "How many viewers in the stream?" → deep_think (LiveKit)
 - "Write some code for X" → deep_think (needs files)
 - "Search for X" → deep_think (web search)
+- "Check my Notion" → deep_think (Notion API)
+- "Add to my notes" → deep_think (Notion)
 
 WHEN NOT TO USE deep_think:
 - Simple chat/questions you can answer from context
