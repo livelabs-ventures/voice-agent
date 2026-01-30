@@ -1,0 +1,11 @@
+# LiveKit Agents SDK
+livekit-agents>=0.8.0
+livekit-plugins-deepgram>=0.6.0
+livekit-plugins-elevenlabs>=0.7.0
+livekit-plugins-silero>=0.6.0
+
+# HTTP client for Clawdbot Gateway
+httpx>=0.27.0
+
+# Environment management
+python-dotenv>=1.0.0
